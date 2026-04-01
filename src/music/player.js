@@ -5,8 +5,9 @@ const {
   AudioPlayerStatus,
   VoiceConnectionStatus,
   entersState,
+  StreamType,
 } = require('@discordjs/voice');
-const playdl = require('play-dl');
+const { spawn, execFile } = require('child_process');
 
 const queues = new Map();
 
@@ -98,24 +99,31 @@ async function playNext(queue) {
   const song = queue.songs[0];
   if (!song) return;
 
-  const stream = await playdl.stream(song.url);
-  const resource = createAudioResource(stream.stream, {
-    inputType: stream.type,
+  const ytdlp = spawn('yt-dlp', [
+    '-f', 'bestaudio',
+    '-o', '-',
+    '--no-warnings',
+    '--quiet',
+    song.url,
+  ]);
+
+  ytdlp.stderr.on('data', (data) => {
+    console.error('yt-dlp:', data.toString());
+  });
+
+  const resource = createAudioResource(ytdlp.stdout, {
+    inputType: StreamType.Arbitrary,
   });
 
   queue.player.play(resource);
 }
 
-async function fetchSongInfo(url) {
-  try {
-    const info = await playdl.video_basic_info(url);
-    return {
-      url,
-      title: info.video_details?.title || url,
-    };
-  } catch {
-    return { url, title: url };
-  }
+function fetchSongInfo(url) {
+  return new Promise((resolve) => {
+    execFile('yt-dlp', ['--print', 'title', '--no-warnings', url], (err, stdout) => {
+      resolve({ url, title: err ? url : stdout.trim() || url });
+    });
+  });
 }
 
 function skip(message) {
