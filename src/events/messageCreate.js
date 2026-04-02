@@ -12,12 +12,12 @@ function handleMessageCreate(message) {
 
   switch (command) {
     case 'play': {
-      const url = extractMusicUrl(args.join(' '));
-      if (!url) {
+      const result = extractMusicUrl(args.join(' '));
+      if (!result) {
         message.reply('Please provide a valid YouTube, Spotify, or SoundCloud URL.');
         return;
       }
-      play(message, url);
+      play(message, result.url, result.type);
       break;
     }
     case 'skip':

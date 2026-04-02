@@ -10,12 +10,13 @@ const {
 const { spawn, execFile } = require('child_process');
 
 const queues = new Map();
+const MAX_PLAYLIST_SIZE = 200;
 
 function getQueue(guildId) {
   return queues.get(guildId);
 }
 
-async function play(message, url) {
+async function play(message, url, type = 'track') {
   const voiceChannel = message.member?.voice?.channel;
   if (!voiceChannel) {
     message.reply('You need to be in a voice channel to play music.');
@@ -79,19 +80,41 @@ async function play(message, url) {
     });
   }
 
-  const songInfo = await fetchSongInfo(url);
-  if (!songInfo) {
-    message.reply('Could not fetch audio for that URL.');
-    return;
-  }
+  if (type === 'playlist') {
+    message.channel.send('Loading playlist...');
 
-  queue.songs.push(songInfo);
+    const songs = await fetchPlaylistInfo(url);
+    if (songs.length === 0) {
+      message.reply('Could not load any tracks from that playlist.');
+      return;
+    }
 
-  if (queue.songs.length === 1) {
-    playNext(queue);
-    message.reply(`▶ Now playing: **${songInfo.title}**`);
+    const wasEmpty = queue.songs.length === 0;
+    queue.songs.push(...songs);
+
+    const truncated = songs.length >= MAX_PLAYLIST_SIZE
+      ? ` (capped at ${MAX_PLAYLIST_SIZE})`
+      : '';
+    message.reply(`Added **${songs.length}** songs from playlist to the queue${truncated}.`);
+
+    if (wasEmpty) {
+      playNext(queue);
+    }
   } else {
-    message.reply(`Added to queue (#${queue.songs.length}): **${songInfo.title}**`);
+    const songInfo = await fetchSongInfo(url);
+    if (!songInfo) {
+      message.reply('Could not fetch audio for that URL.');
+      return;
+    }
+
+    queue.songs.push(songInfo);
+
+    if (queue.songs.length === 1) {
+      playNext(queue);
+      message.reply(`▶ Now playing: **${songInfo.title}**`);
+    } else {
+      message.reply(`Added to queue (#${queue.songs.length}): **${songInfo.title}**`);
+    }
   }
 }
 
@@ -123,6 +146,31 @@ function fetchSongInfo(url) {
     execFile('yt-dlp', ['--print', 'title', '--no-warnings', url], (err, stdout) => {
       resolve({ url, title: err ? url : stdout.trim() || url });
     });
+  });
+}
+
+function fetchPlaylistInfo(url) {
+  return new Promise((resolve) => {
+    execFile(
+      'yt-dlp',
+      ['--flat-playlist', '--print', 'url', '--print', 'title', '--no-warnings', url],
+      { maxBuffer: 1024 * 1024 * 5 },
+      (err, stdout) => {
+        if (err || !stdout.trim()) {
+          resolve([]);
+          return;
+        }
+        const lines = stdout.trim().split('\n');
+        const songs = [];
+        for (let i = 0; i < lines.length - 1 && songs.length < MAX_PLAYLIST_SIZE; i += 2) {
+          songs.push({
+            url: lines[i].trim(),
+            title: lines[i + 1]?.trim() || lines[i].trim(),
+          });
+        }
+        resolve(songs);
+      }
+    );
   });
 }
 
