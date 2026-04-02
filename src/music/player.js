@@ -130,8 +130,12 @@ async function playNext(queue) {
     song.url,
   ]);
 
+  queue.process = ytdlp;
+
   ytdlp.stderr.on('data', (data) => {
-    console.error('yt-dlp:', data.toString());
+    const msg = data.toString();
+    if (msg.includes('Broken pipe')) return;
+    console.error('yt-dlp:', msg);
   });
 
   const resource = createAudioResource(ytdlp.stdout, {
@@ -181,6 +185,7 @@ function skip(message) {
     return;
   }
   message.reply(`Skipped: **${queue.songs[0].title}**`);
+  if (queue.process) queue.process.kill();
   queue.player.stop();
 }
 
@@ -191,6 +196,7 @@ function stop(message) {
     return;
   }
   queue.songs = [];
+  if (queue.process) queue.process.kill();
   queue.player.stop();
   queue.connection.destroy();
   queues.delete(message.guild.id);
